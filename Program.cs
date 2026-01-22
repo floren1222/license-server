@@ -1,32 +1,39 @@
-using Microsoft.Data.SQLite;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.OpenApi.Models;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// Добавляем OpenAPI (Swagger)
+// Swagger
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
+builder.Services.AddSwaggerGen(c =>
+{
+    c.SwaggerDoc("v1", new OpenApiInfo { Title = "LicenseServer API", Version = "v1" });
+});
 
 var app = builder.Build();
 
-// Swagger для тестирования
+// Swagger UI
 if (app.Environment.IsDevelopment())
 {
     app.UseSwagger();
-    app.UseSwaggerUI();
+    app.UseSwaggerUI(c =>
+    {
+        c.SwaggerEndpoint("/swagger/v1/swagger.json", "LicenseServer API v1");
+    });
 }
 
 app.UseHttpsRedirection();
 
-// Инициализация базы данных
+// Инициализация базы
 Database.Init();
 
-// Endpoint для активации ключа
+// Endpoint активации
 app.MapPost("/activate", (ActivationRequest req) =>
 {
-    using var con = new SQLiteConnection("Data Source=licenses.db");
+    using var con = new Microsoft.Data.Sqlite.SqliteConnection("Data Source=licenses.db");
     con.Open();
 
-    // Проверяем, есть ли ключ
     var cmd = con.CreateCommand();
     cmd.CommandText = @"SELECT is_used, hwid FROM licenses WHERE license_key = $key";
     cmd.Parameters.AddWithValue("$key", req.Key);
@@ -38,13 +45,11 @@ app.MapPost("/activate", (ActivationRequest req) =>
     bool used = reader.GetInt32(0) == 1;
     string savedHwid = reader.IsDBNull(1) ? "" : reader.GetString(1);
 
-    // Если ключ уже активирован на другом ПК
     if (used && savedHwid != req.Hwid)
         return Results.BadRequest(new { success = false, message = "KEY_ALREADY_USED" });
 
     reader.Close();
 
-    // Активируем ключ и привязываем к HWID
     var update = con.CreateCommand();
     update.CommandText = @"UPDATE licenses SET is_used = 1, hwid = $hwid WHERE license_key = $key";
     update.Parameters.AddWithValue("$key", req.Key);
@@ -56,43 +61,4 @@ app.MapPost("/activate", (ActivationRequest req) =>
 
 app.Run();
 
-// --------------------------
-// Класс для работы с БД
-// --------------------------
-public static class Database
-{
-    private const string Connection = "Data Source=licenses.db";
-
-    public static void Init()
-    {
-        using var con = new SQLiteConnection(Connection);
-        con.Open();
-
-        var cmd = con.CreateCommand();
-        cmd.CommandText = @"
-        CREATE TABLE IF NOT EXISTS licenses (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            license_key TEXT UNIQUE,
-            is_used INTEGER DEFAULT 0,
-            hwid TEXT
-        );";
-        cmd.ExecuteNonQuery();
-    }
-
-    // Добавление ключа вручную (для админа)
-    public static void AddKey(string key)
-    {
-        using var con = new SQLiteConnection(Connection);
-        con.Open();
-
-        var cmd = con.CreateCommand();
-        cmd.CommandText = @"INSERT OR IGNORE INTO licenses (license_key) VALUES ($key)";
-        cmd.Parameters.AddWithValue("$key", key);
-        cmd.ExecuteNonQuery();
-    }
-}
-
-// --------------------------
-// Модель запроса
-// --------------------------
 public record ActivationRequest(string Key, string Hwid);

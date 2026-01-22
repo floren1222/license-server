@@ -1,4 +1,4 @@
-using Microsoft.Data.SQLite;
+using Microsoft.Data.Sqlite;
 
 public static class Database
 {
@@ -6,7 +6,7 @@ public static class Database
 
     public static void Init()
     {
-        using var con = new SQLiteConnection(Connection);
+        using var con = new SqliteConnection(Connection);
         con.Open();
 
         var cmd = con.CreateCommand();
@@ -16,8 +16,18 @@ public static class Database
             license_key TEXT UNIQUE,
             is_used INTEGER DEFAULT 0,
             hwid TEXT
-        );
-        ";
+        );";
+        cmd.ExecuteNonQuery();
+    }
+
+    public static void AddKey(string key)
+    {
+        using var con = new SqliteConnection(Connection);
+        con.Open();
+
+        var cmd = con.CreateCommand();
+        cmd.CommandText = @"INSERT OR IGNORE INTO licenses (license_key) VALUES ($key)";
+        cmd.Parameters.AddWithValue("$key", key);
         cmd.ExecuteNonQuery();
     }
 }
